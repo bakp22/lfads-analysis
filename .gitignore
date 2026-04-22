@@ -2,3 +2,5 @@
 output/
 *.h5
 *.mat
+
+.DS_Store
