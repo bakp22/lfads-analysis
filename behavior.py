@@ -122,18 +122,19 @@ def run_rt_timecourse_regression(
 
 def predict_rt_per_trial_over_time(factors, rt):
     """
-    Build a trial-by-time matrix of RT predictions.
+    Build a trial-by-time-bin matrix of RT predictions.
 
-    For each time bin and each trial, fit OLS on all OTHER trials
-    (leave-one-trial-out) and predict held-out trial RT.
+    For each time bin (1-110, each representing 20ms) and each trial,
+    fit OLS on all OTHER trials (leave-one-trial-out) and predict held-out trial RT.
+    This maintains single-trial resolution while working across time bins.
     """
-    K, Tr, _ = factors.shape
-    y = rt.flatten()[:K]
+    K, Tr, L = factors.shape  # K = trials, Tr = time bins (110), L = factors
+    rt = rt.flatten()[:K]
     y_hat = np.full((K, Tr), np.nan)
 
-    valid_rt = np.isfinite(y)
-    for t_idx in range(Tr):
-        X_t = factors[:, t_idx, :]
+    valid_rt = np.isfinite(rt)
+    for t_idx in range(Tr):  # Loop through each time bin (0-109)
+        X_t = factors[:, t_idx, :]  # Factors for all trials at this time bin
         valid_x = np.all(np.isfinite(X_t), axis=1)
         valid_all = valid_rt & valid_x
 
@@ -141,13 +142,13 @@ def predict_rt_per_trial_over_time(factors, rt):
         if len(idx_valid) < 3:
             continue
 
-        for i in idx_valid:
+        for i in idx_valid:  # Leave-one-trial-out for each trial
             train_idx = idx_valid[idx_valid != i]
             if len(train_idx) <= X_t.shape[1] + 1:
                 continue
 
             X_train = X_t[train_idx]
-            y_train = y[train_idx]
+            y_train = rt[train_idx]
             X_design_train = np.column_stack([np.ones(X_train.shape[0]), X_train])
             beta, _, _, _ = np.linalg.lstsq(X_design_train, y_train, rcond=None)
 
@@ -162,7 +163,7 @@ def mark_pt(axis, timepoint, p_values, r2_values, p_threshold=0.05, r2_threshold
 
     #DEBUG
     print(f"Found {np.sum(is_high)} points matching criteria.")
-    
+
     if np.any(is_high):
         axis.scatter(timepoint[is_high], r2_values[is_high], color="red", s=40, edgecolor="white", zorder=5, label="high r2")
     else:
@@ -171,20 +172,23 @@ def mark_pt(axis, timepoint, p_values, r2_values, p_threshold=0.05, r2_threshold
 
 
 def plot_rt_timecourse(times_ms, r2_vals, p_vals, alpha=0.05, out_path="rt_predictability_timecourse.png"):
-    """Plot R^2 and p-values across trial time and save a PNG figure."""
+    """Plot R^2 and p-values across trial time bins and save a PNG figure."""
     fig, ax1 = plt.subplots(figsize=(10, 5))
 
-    ax1.plot(times_ms, r2_vals, color="tab:blue", linewidth=2, label="RT R^2")
+    # Use bin indices instead of time values
+    bin_indices = np.arange(len(times_ms))
 
-    mark_pt(ax1, times_ms, r2_vals, p_vals)
+    ax1.plot(bin_indices, r2_vals, color="tab:blue", linewidth=2, label="RT R^2")
 
-    ax1.set_xlabel("Time in trial (ms)")
+    mark_pt(ax1, bin_indices, r2_vals, p_vals)
+
+    ax1.set_xlabel("Time Bin")
     ax1.set_ylabel("R^2", color="tab:blue")
     ax1.tick_params(axis="y", labelcolor="tab:blue")
     ax1.axhline(0, color="tab:blue", linestyle="--", alpha=0.3)
-    
+
     ax2 = ax1.twinx()
-    ax2.plot(times_ms, p_vals, color="tab:red", linewidth=1.5, label="Model p-value")
+    ax2.plot(bin_indices, p_vals, color="tab:red", linewidth=1.5, label="Model p-value")
     ax2.axhline(alpha, color="tab:red", linestyle="--", alpha=0.7, label=f"alpha={alpha}")
     ax2.set_ylabel("p-value", color="tab:red")
     ax2.tick_params(axis="y", labelcolor="tab:red")
@@ -193,16 +197,14 @@ def plot_rt_timecourse(times_ms, r2_vals, p_vals, alpha=0.05, out_path="rt_predi
     lines_1, labels_1 = ax1.get_legend_handles_labels()
     lines_2, labels_2 = ax2.get_legend_handles_labels()
 
-    # 2. Combine them and create one legend
+    # Combine them and create one legend
     ax1.legend(lines_1 + lines_2, labels_1 + labels_2,
            loc='upper right', frameon=True, fontsize='small')
 
-    fig.suptitle("When does latent state predict reaction time?")
+    fig.suptitle("R^2 and P-Values on Reaction time for 04/30/2025")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-
-
 
 
 # 1. File Paths
